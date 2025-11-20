@@ -1,18 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { KeyIcon } from '@heroicons/react/24/outline';
+import { KeyIcon, XMarkIcon } from '@heroicons/react/24/outline';
 
 interface ApiKeyModalProps {
   isOpen: boolean;
   onSave: (key: string) => void;
   onClose: () => void;
-  hasKey: boolean; // If user already has a key, allow closing without saving
+  hasKey: boolean;
 }
 
 export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onSave, onClose, hasKey }) => {
   const [inputKey, setInputKey] = useState('');
 
   useEffect(() => {
-    // Pre-fill if editing existing key (optional, usually better to keep blank for security)
     setInputKey('');
   }, [isOpen]);
 
@@ -27,16 +26,27 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onSave, onClos
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100">
-        <div className="bg-indigo-600 px-6 py-4 flex items-center gap-3">
-          <div className="p-2 bg-white/20 rounded-lg">
-            <KeyIcon className="w-6 h-6 text-white" />
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden border border-slate-100 flex flex-col">
+        {/* Header */}
+        <div className="bg-indigo-600 px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-white/20 rounded-lg">
+              <KeyIcon className="w-6 h-6 text-white" />
+            </div>
+            <h3 className="text-lg font-bold text-white">
+              {hasKey ? 'Update API Key' : 'Setup API Key'}
+            </h3>
           </div>
-          <h3 className="text-lg font-bold text-white">
-            {hasKey ? 'Update API Key' : 'Setup API Key'}
-          </h3>
+          <button 
+            onClick={onClose}
+            className="text-white/70 hover:text-white transition-colors p-1 rounded-md hover:bg-white/10"
+            type="button"
+          >
+            <XMarkIcon className="w-6 h-6" />
+          </button>
         </div>
 
+        {/* Body */}
         <div className="p-6">
           <p className="text-slate-600 text-sm mb-4 leading-relaxed">
             To use the AI Summary feature, you need to provide your own Google Gemini API Key. 
@@ -63,15 +73,13 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onSave, onClos
             </div>
 
             <div className="flex gap-3 pt-2">
-              {hasKey && (
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 font-medium rounded-lg hover:bg-slate-50 transition-colors"
-                >
-                  Cancel
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={onClose}
+                className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 font-medium rounded-lg hover:bg-slate-50 transition-colors"
+              >
+                Cancel
+              </button>
               <button
                 type="submit"
                 disabled={!inputKey.trim()}

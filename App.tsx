@@ -29,10 +29,8 @@ const App: React.FC = () => {
     const storedKey = localStorage.getItem('gemini_api_key');
     if (storedKey) {
       setApiKey(storedKey);
-    } else {
-      // If no key found, prompt user
-      setIsKeyModalOpen(true);
     }
+    // REMOVED: Automatic modal opening logic
   }, []);
 
   const handleSaveKey = (key: string) => {
@@ -45,13 +43,13 @@ const App: React.FC = () => {
   const diffParts = React.useMemo(() => computeDiff(originalText, modifiedText), [originalText, modifiedText]);
 
   const handleAnalysis = useCallback(async () => {
-    if (!originalText.trim() || !modifiedText.trim()) return;
-    
-    // If no key when clicking analyze, prompt again
+    // If no key, open settings instead of analyzing
     if (!apiKey) {
       setIsKeyModalOpen(true);
       return;
     }
+
+    if (!originalText.trim() || !modifiedText.trim()) return;
     
     setIsAnalyzing(true);
     setSummary(""); // Clear previous summary
@@ -62,11 +60,10 @@ const App: React.FC = () => {
   }, [originalText, modifiedText, selectedModel, apiKey]);
 
   const handleClear = () => {
-    if (window.confirm("Are you sure you want to clear both documents?")) {
-      setOriginalText("");
-      setModifiedText("");
-      setSummary("");
-    }
+    // REMOVED: window.confirm blocking call
+    setOriginalText("");
+    setModifiedText("");
+    setSummary("");
   };
 
   const hasContent = originalText.length > 0 && modifiedText.length > 0;
@@ -108,6 +105,7 @@ const App: React.FC = () => {
                   isLoading={isAnalyzing} 
                   onGenerate={handleAnalysis}
                   hasContent={hasContent}
+                  hasKey={!!apiKey}
                 />
               </section>
             )}
@@ -120,6 +118,7 @@ const App: React.FC = () => {
           {/* Toolbar */}
           <div className="p-4 border-b border-slate-100 flex items-center gap-3 bg-white">
              <button
+                type="button"
                 onClick={handleAnalysis}
                 disabled={!hasContent || isAnalyzing}
                 className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-lg font-medium shadow-sm transition-all text-sm"
@@ -129,6 +128,7 @@ const App: React.FC = () => {
              </button>
              
              <button
+                type="button"
                 onClick={handleClear}
                 className="flex items-center justify-center p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                 title="Clear all text"

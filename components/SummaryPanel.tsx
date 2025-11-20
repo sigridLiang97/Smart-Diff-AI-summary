@@ -1,15 +1,17 @@
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { KeyIcon } from '@heroicons/react/24/outline';
 
 interface SummaryPanelProps {
   summary: string;
   isLoading: boolean;
   onGenerate: () => void;
   hasContent: boolean;
+  hasKey: boolean;
 }
 
-export const SummaryPanel: React.FC<SummaryPanelProps> = ({ summary, isLoading, onGenerate, hasContent }) => {
+export const SummaryPanel: React.FC<SummaryPanelProps> = ({ summary, isLoading, onGenerate, hasContent, hasKey }) => {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 h-full flex flex-col">
       <div className="flex items-center justify-between mb-4">
@@ -34,7 +36,6 @@ export const SummaryPanel: React.FC<SummaryPanelProps> = ({ summary, isLoading, 
             <ReactMarkdown 
               remarkPlugins={[remarkGfm]}
               components={{
-                // Custom styling for markdown elements to match the app theme
                 p: ({node, ...props}) => <p className="mb-3 last:mb-0" {...props} />,
                 ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-4 space-y-1" {...props} />,
                 li: ({node, ...props}) => <li className="pl-1" {...props} />,
@@ -47,20 +48,39 @@ export const SummaryPanel: React.FC<SummaryPanelProps> = ({ summary, isLoading, 
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-48 text-center">
-            <p className="text-slate-400 mb-4 text-sm">
-              Ready to analyze. Enter text in both fields to compare.
-            </p>
-            <button
-              onClick={onGenerate}
-              disabled={!hasContent}
-              className={`px-5 py-2.5 rounded-lg font-medium text-sm transition-all shadow-sm
-                ${hasContent 
-                  ? 'bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-md cursor-pointer' 
-                  : 'bg-slate-100 text-slate-400 cursor-not-allowed'}
-              `}
-            >
-              Generate Analysis
-            </button>
+            {!hasKey ? (
+              <>
+                <div className="p-3 bg-indigo-50 rounded-full mb-3">
+                  <KeyIcon className="w-6 h-6 text-indigo-500" />
+                </div>
+                <p className="text-slate-500 mb-4 text-sm max-w-xs">
+                  Configure your API Key to enable intelligent analysis of changes.
+                </p>
+                <button
+                  onClick={onGenerate}
+                  className="px-5 py-2.5 bg-indigo-600 text-white hover:bg-indigo-700 rounded-lg font-medium text-sm transition-colors shadow-sm"
+                >
+                  Setup API Key
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-slate-400 mb-4 text-sm">
+                  Ready to analyze. Enter text in both fields to compare.
+                </p>
+                <button
+                  onClick={onGenerate}
+                  disabled={!hasContent}
+                  className={`px-5 py-2.5 rounded-lg font-medium text-sm transition-all shadow-sm
+                    ${hasContent 
+                      ? 'bg-indigo-600 text-white hover:bg-indigo-700 hover:shadow-md cursor-pointer' 
+                      : 'bg-slate-100 text-slate-400 cursor-not-allowed'}
+                  `}
+                >
+                  Generate Analysis
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
