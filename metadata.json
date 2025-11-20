@@ -1,0 +1,5 @@
+{
+  "name": "Smart Diff & AI Summary",
+  "description": "A bilingual text comparison tool that visualizes changes (diffs) and uses Google Gemini to generate intelligent summaries of the modifications.",
+  "requestFramePermissions": []
+}
