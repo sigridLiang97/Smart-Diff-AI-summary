@@ -1,4 +1,6 @@
 import React from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface SummaryPanelProps {
   summary: string;
@@ -28,8 +30,20 @@ export const SummaryPanel: React.FC<SummaryPanelProps> = ({ summary, isLoading, 
              <p className="text-sm text-slate-400 font-medium">Gemini is analyzing changes...</p>
           </div>
         ) : summary ? (
-          <div className="prose prose-slate prose-sm max-w-none text-slate-600 leading-relaxed whitespace-pre-wrap">
-            {summary}
+          <div className="prose prose-slate prose-sm max-w-none text-slate-600 leading-relaxed">
+            <ReactMarkdown 
+              remarkPlugins={[remarkGfm]}
+              components={{
+                // Custom styling for markdown elements to match the app theme
+                p: ({node, ...props}) => <p className="mb-3 last:mb-0" {...props} />,
+                ul: ({node, ...props}) => <ul className="list-disc pl-5 mb-4 space-y-1" {...props} />,
+                li: ({node, ...props}) => <li className="pl-1" {...props} />,
+                strong: ({node, ...props}) => <strong className="font-bold text-slate-800" {...props} />,
+                h3: ({node, ...props}) => <h3 className="text-md font-bold text-slate-900 mt-4 mb-2" {...props} />,
+              }}
+            >
+              {summary}
+            </ReactMarkdown>
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center h-48 text-center">
