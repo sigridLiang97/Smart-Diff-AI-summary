@@ -1,5 +1,5 @@
 
-import { GoogleGenAI, ChatSession, Content } from "@google/genai";
+import { GoogleGenAI, Chat } from "@google/genai";
 import { ChatMessage } from "../types";
 
 /**
@@ -32,27 +32,18 @@ export const generatePersonaPrompt = async (
   return result.text?.trim() || `You are ${personaName}. Analyze the text changes accordingly.`;
 };
 
-/**
- * Initializes a chat session with the specific context of the two texts.
- */
-export const startAnalysisChat = async (
-  apiKey: string,
-  modelName: string,
+// Helper to build the massive prompt context
+const constructInitialPrompt = (
   original: string,
   modified: string,
-  systemInstruction: string, // Now accepts the raw prompt string
+  systemInstruction: string,
   question?: string
-): Promise<{ session: ChatSession, initialResponse: string }> => {
-  if (!apiKey) throw new Error("API Key is missing");
-
-  const ai = new GoogleGenAI({ apiKey });
-  
-  // Construct the System Instruction / Initial Context
+) => {
   const questionContext = question 
     ? `SPECIFIC QUESTION/GOAL: The user wants to know: "${question}".\nCompare which version better answers this question or achieves this goal.`
     : `TASK: Compare the quality of the two texts. Highlight improvements and potential regressions.`;
 
-  const initialPrompt = `
+  return `
     ${systemInstruction}
 
     ${questionContext}
@@ -72,6 +63,24 @@ export const startAnalysisChat = async (
     2. ${question ? "Directly answer the user's specific question about which version is better." : "Evaluate the overall improvement."}
     3. Provide a conclusion.
   `;
+};
+
+/**
+ * Initializes a chat session with the specific context of the two texts.
+ */
+export const startAnalysisChat = async (
+  apiKey: string,
+  modelName: string,
+  original: string,
+  modified: string,
+  systemInstruction: string, 
+  question?: string
+): Promise<{ session: Chat, initialResponse: string }> => {
+  if (!apiKey) throw new Error("API Key is missing");
+
+  const ai = new GoogleGenAI({ apiKey });
+  
+  const initialPrompt = constructInitialPrompt(original, modified, systemInstruction, question);
 
   // Initialize Chat
   const chat = ai.chats.create({
@@ -94,7 +103,7 @@ export const startAnalysisChat = async (
 
 /**
  * Resumes a chat session from existing message history.
- * This allows users to continue chatting after loading a history item.
+ * Reconstructs the implicit context (original texts) so the AI knows what we are talking about.
  */
 export const resumeAnalysisChat = async (
   apiKey: string,
@@ -104,26 +113,32 @@ export const resumeAnalysisChat = async (
   modified: string,
   systemInstruction: string,
   question?: string
-): Promise<ChatSession> => {
+): Promise<Chat> => {
   if (!apiKey) throw new Error("API Key is missing");
 
   const ai = new GoogleGenAI({ apiKey });
 
-  // We need to re-inject the context so the model knows what we are talking about
-  // because the 'history' prop in create() sets the visible history, 
-  // but we usually want to ensure the system context is fresh in the model's "mind".
-  
-  // However, simply passing history is often enough for Gemini if the history contains the full context.
-  // Assuming historyMessages[0] contains the big prompt we sent in startAnalysisChat.
-  
-  const sdkHistory = historyMessages.map(msg => ({
+  // Reconstruct the initial prompt so the model has the full context of the texts
+  const initialPrompt = constructInitialPrompt(original, modified, systemInstruction, question);
+
+  // Convert visible history to SDK format
+  const visibleHistory = historyMessages.map(msg => ({
     role: msg.role,
     parts: [{ text: msg.text }]
   }));
 
+  // Prepend the "System Context" disguised as the first user message.
+  // In startAnalysisChat, we sent `initialPrompt` -> got `response`.
+  // In `historyMessages` (UI state), we only stored the `response`.
+  // So we need to recreate that first `user` message containing the data.
+  const fullHistory = [
+    { role: 'user', parts: [{ text: initialPrompt }] },
+    ...visibleHistory
+  ];
+
   const chat = ai.chats.create({
     model: modelName,
-    history: sdkHistory,
+    history: fullHistory,
     config: {
       temperature: 0.4,
     }
@@ -136,7 +151,7 @@ export const resumeAnalysisChat = async (
  * Sends a follow-up message in the existing chat session.
  */
 export const sendFollowUpMessage = async (
-  session: ChatSession,
+  session: Chat,
   message: string
 ): Promise<string> => {
   const result = await session.sendMessage({

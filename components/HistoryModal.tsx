@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { XMarkIcon, ClockIcon, TrashIcon, ArrowPathIcon, ClipboardDocumentIcon } from '@heroicons/react/24/outline';
 import { HistoryItem } from '../types';
@@ -82,9 +83,9 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                     {formatDate(item.timestamp)}
                   </span>
                   <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${
-                    item.persona === 'general' ? 'bg-slate-50 text-slate-500 border-slate-100' : 'bg-indigo-50 text-indigo-600 border-indigo-100'
+                    item.persona.id === 'general' ? 'bg-slate-50 text-slate-500 border-slate-100' : 'bg-indigo-50 text-indigo-600 border-indigo-100'
                   }`}>
-                    {item.persona}
+                    {item.persona.name}
                   </span>
                 </div>
 

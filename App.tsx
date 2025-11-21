@@ -11,7 +11,7 @@ import { ApiKeyModal } from './components/ApiKeyModal';
 import { HistoryModal } from './components/HistoryModal';
 import { PersonaCreatorModal } from './components/PersonaCreatorModal';
 import { StoredKey, PersonaDefinition, ChatMessage, HistoryItem } from './types';
-import { ChatSession } from '@google/genai';
+import { Chat } from '@google/genai';
 
 const DEFAULT_ORIGINAL = `Google Gemini is a family of multimodal AI models developed by Google DeepMind. It is designed to understand and generate text, code, and images seamlessly.`;
 const DEFAULT_MODIFIED = `Google Gemini is a powerful family of multimodal AI models created by Google DeepMind. It is engineered to interpret and generate text, code, audio, and images with high accuracy.`;
@@ -49,7 +49,7 @@ const App: React.FC = () => {
   // --- AI/CHAT STATE ---
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const chatSessionRef = useRef<ChatSession | null>(null);
+  const chatSessionRef = useRef<Chat | null>(null);
 
   // Load Data on Mount
   useEffect(() => {
