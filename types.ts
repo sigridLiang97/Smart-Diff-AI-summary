@@ -1,3 +1,4 @@
+
 export interface DiffPart {
   value: string;
   added?: boolean;
@@ -16,7 +17,12 @@ export enum AppState {
 
 // --- New Types for Advanced Features ---
 
-export type Persona = 'general' | 'interviewer' | 'academic' | 'reviewer' | 'reader';
+export interface PersonaDefinition {
+  id: string;
+  name: string;
+  description: string; // This acts as the system prompt
+  isCustom?: boolean;
+}
 
 export interface StoredKey {
   id: string;
@@ -31,4 +37,14 @@ export interface ChatMessage {
   text: string;
   timestamp: number;
   isError?: boolean;
+}
+
+export interface HistoryItem {
+  id: string;
+  timestamp: number;
+  originalText: string;
+  modifiedText: string;
+  persona: PersonaDefinition;
+  question: string;
+  messages: ChatMessage[];
 }

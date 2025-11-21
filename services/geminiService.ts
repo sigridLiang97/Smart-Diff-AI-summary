@@ -1,14 +1,35 @@
+
 import { GoogleGenAI, ChatSession, Content } from "@google/genai";
-import { Persona } from "../types";
+import { ChatMessage } from "../types";
 
-let chatSession: ChatSession | null = null;
+/**
+ * Generates a system prompt/description for a specific persona name using Gemini.
+ */
+export const generatePersonaPrompt = async (
+  apiKey: string,
+  modelName: string,
+  personaName: string
+): Promise<string> => {
+  if (!apiKey) throw new Error("API Key is missing");
 
-const PERSONA_PROMPTS: Record<Persona, string> = {
-  general: "You are an expert editor and proofreader. Analyze the changes objectively.",
-  interviewer: "You are a strict hiring manager or interviewer. Evaluate the text based on impact, clarity, use of the STAR method (if applicable), and professional presence. Determine which version makes the candidate sound more competent.",
-  academic: "You are a professional academic editor. Focus on formal tone, precision, citation style consistency, and logical flow. Point out if the changes improve scientific rigor.",
-  reviewer: "You are a critical peer reviewer. Look for gaps in argumentation, clarity of hypothesis, and strength of evidence. Evaluate if the modified text addresses potential reviewer concerns.",
-  reader: "You are a general reader with average knowledge. Focus on readability, engagement, flow, and whether the text is boring or confusing."
+  const ai = new GoogleGenAI({ apiKey });
+  
+  const prompt = `
+    Task: You are an expert prompt engineer.
+    User Goal: The user wants to create a specific "Persona" for an AI text analysis tool.
+    Persona Name: "${personaName}"
+    
+    Action: Write a concise, effective System Instruction (2-3 sentences) that an AI should follow to act as this persona. 
+    Focus on the tone, what to look for in text changes, and evaluation criteria. 
+    Do NOT include introductory text like "Here is the prompt", just output the prompt itself.
+  `;
+
+  const result = await ai.models.generateContent({
+    model: modelName,
+    contents: prompt,
+  });
+
+  return result.text?.trim() || `You are ${personaName}. Analyze the text changes accordingly.`;
 };
 
 /**
@@ -19,7 +40,7 @@ export const startAnalysisChat = async (
   modelName: string,
   original: string,
   modified: string,
-  persona: Persona,
+  systemInstruction: string, // Now accepts the raw prompt string
   question?: string
 ): Promise<{ session: ChatSession, initialResponse: string }> => {
   if (!apiKey) throw new Error("API Key is missing");
@@ -27,13 +48,12 @@ export const startAnalysisChat = async (
   const ai = new GoogleGenAI({ apiKey });
   
   // Construct the System Instruction / Initial Context
-  const baseInstruction = PERSONA_PROMPTS[persona];
   const questionContext = question 
     ? `SPECIFIC QUESTION/GOAL: The user wants to know: "${question}".\nCompare which version better answers this question or achieves this goal.`
     : `TASK: Compare the quality of the two texts. Highlight improvements and potential regressions.`;
 
   const initialPrompt = `
-    ${baseInstruction}
+    ${systemInstruction}
 
     ${questionContext}
 
@@ -62,8 +82,6 @@ export const startAnalysisChat = async (
   });
 
   // Send the initial context context as the first message
-  // Note: ideally we would use systemInstruction in config, but putting the heavy context in the first prompt 
-  // is often more reliable for immediate analysis of large blocks of text in this SDK version.
   const result = await chat.sendMessage({
     message: initialPrompt
   });
@@ -72,6 +90,46 @@ export const startAnalysisChat = async (
     session: chat,
     initialResponse: result.text || "Analysis generated, but no text returned."
   };
+};
+
+/**
+ * Resumes a chat session from existing message history.
+ * This allows users to continue chatting after loading a history item.
+ */
+export const resumeAnalysisChat = async (
+  apiKey: string,
+  modelName: string,
+  historyMessages: ChatMessage[],
+  original: string,
+  modified: string,
+  systemInstruction: string,
+  question?: string
+): Promise<ChatSession> => {
+  if (!apiKey) throw new Error("API Key is missing");
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  // We need to re-inject the context so the model knows what we are talking about
+  // because the 'history' prop in create() sets the visible history, 
+  // but we usually want to ensure the system context is fresh in the model's "mind".
+  
+  // However, simply passing history is often enough for Gemini if the history contains the full context.
+  // Assuming historyMessages[0] contains the big prompt we sent in startAnalysisChat.
+  
+  const sdkHistory = historyMessages.map(msg => ({
+    role: msg.role,
+    parts: [{ text: msg.text }]
+  }));
+
+  const chat = ai.chats.create({
+    model: modelName,
+    history: sdkHistory,
+    config: {
+      temperature: 0.4,
+    }
+  });
+
+  return chat;
 };
 
 /**

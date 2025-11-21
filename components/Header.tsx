@@ -1,13 +1,14 @@
 import React from 'react';
-import { ArrowPathIcon, CpuChipIcon, KeyIcon } from '@heroicons/react/24/outline';
+import { ArrowPathIcon, CpuChipIcon, KeyIcon, ClockIcon } from '@heroicons/react/24/outline';
 
 interface HeaderProps {
   selectedModel: string;
   onModelChange: (model: string) => void;
   onOpenSettings: () => void;
+  onOpenHistory: () => void;
 }
 
-export const Header: React.FC<HeaderProps> = ({ selectedModel, onModelChange, onOpenSettings }) => {
+export const Header: React.FC<HeaderProps> = ({ selectedModel, onModelChange, onOpenSettings, onOpenHistory }) => {
   return (
     <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
       <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -33,6 +34,16 @@ export const Header: React.FC<HeaderProps> = ({ selectedModel, onModelChange, on
               <option value="gemini-3-pro-preview">Gemini 3.0 Pro (High Intelligence)</option>
             </select>
           </div>
+
+          {/* History Button */}
+          <button
+            onClick={onOpenHistory}
+            className="flex items-center gap-2 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-600 hover:text-indigo-600 border border-slate-200 rounded-lg transition-colors text-sm font-medium shadow-sm"
+            title="View Analysis History"
+          >
+            <ClockIcon className="w-4 h-4" />
+            <span className="hidden sm:inline">History</span>
+          </button>
 
           {/* API Key Settings */}
           <button
