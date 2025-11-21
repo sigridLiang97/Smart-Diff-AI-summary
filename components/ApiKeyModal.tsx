@@ -1,27 +1,65 @@
 import React, { useState, useEffect } from 'react';
-import { KeyIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { KeyIcon, XMarkIcon, PlusIcon, TrashIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
+import { StoredKey } from '../types';
 
 interface ApiKeyModalProps {
   isOpen: boolean;
-  onSave: (key: string) => void;
   onClose: () => void;
-  hasKey: boolean;
+  keys: StoredKey[];
+  setKeys: (keys: StoredKey[]) => void;
 }
 
-export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onSave, onClose, hasKey }) => {
-  const [inputKey, setInputKey] = useState('');
+export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onClose, keys, setKeys }) => {
+  const [newKeyName, setNewKeyName] = useState('');
+  const [newKeyValue, setNewKeyValue] = useState('');
+  const [view, setView] = useState<'list' | 'add'>(keys.length === 0 ? 'add' : 'list');
 
+  // Reset state when opening
   useEffect(() => {
-    setInputKey('');
-  }, [isOpen]);
+    if (isOpen) {
+      setView(keys.length === 0 ? 'add' : 'list');
+      setNewKeyName('');
+      setNewKeyValue('');
+    }
+  }, [isOpen, keys.length]);
 
   if (!isOpen) return null;
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleAddKey = (e: React.FormEvent) => {
     e.preventDefault();
-    if (inputKey.trim()) {
-      onSave(inputKey.trim());
+    if (!newKeyName.trim() || !newKeyValue.trim()) return;
+
+    const newKey: StoredKey = {
+      id: crypto.randomUUID(),
+      name: newKeyName.trim(),
+      value: newKeyValue.trim(),
+      isActive: keys.length === 0 // Auto-activate if it's the first one
+    };
+
+    const updatedKeys = [...keys, newKey];
+    setKeys(updatedKeys);
+    setView('list');
+    setNewKeyName('');
+    setNewKeyValue('');
+  };
+
+  const handleActivate = (id: string) => {
+    const updatedKeys = keys.map(k => ({
+      ...k,
+      isActive: k.id === id
+    }));
+    setKeys(updatedKeys);
+  };
+
+  const handleDelete = (id: string) => {
+    if (!confirm('Delete this API Key?')) return;
+    const updatedKeys = keys.filter(k => k.id !== id);
+    // If we deleted the active one, activate the first available
+    if (updatedKeys.length > 0 && !updatedKeys.some(k => k.isActive)) {
+      updatedKeys[0].isActive = true;
     }
+    setKeys(updatedKeys);
+    if (updatedKeys.length === 0) setView('add');
   };
 
   return (
@@ -33,9 +71,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onSave, onClos
             <div className="p-2 bg-white/20 rounded-lg">
               <KeyIcon className="w-6 h-6 text-white" />
             </div>
-            <h3 className="text-lg font-bold text-white">
-              {hasKey ? 'Update API Key' : 'Setup API Key'}
-            </h3>
+            <h3 className="text-lg font-bold text-white">API Key Management</h3>
           </div>
           <button 
             onClick={onClose}
@@ -48,47 +84,96 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ isOpen, onSave, onClos
 
         {/* Body */}
         <div className="p-6">
-          <p className="text-slate-600 text-sm mb-4 leading-relaxed">
-            To use the AI Summary feature, you need to provide your own Google Gemini API Key. 
-            Your key is stored <strong>locally in your browser</strong> and is never sent to any third-party server.
-          </p>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">
-                Gemini API Key
-              </label>
-              <input
-                type="password"
-                value={inputKey}
-                onChange={(e) => setInputKey(e.target.value)}
-                placeholder="AIzaSy..."
-                className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all font-mono text-sm"
-                required
-              />
+          {view === 'list' ? (
+            <div className="space-y-4">
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="text-sm font-bold text-slate-700 uppercase">Your Keys</h4>
+                <button 
+                  onClick={() => setView('add')}
+                  className="text-xs flex items-center gap-1 text-indigo-600 font-medium hover:text-indigo-800"
+                >
+                  <PlusIcon className="w-4 h-4" /> Add New
+                </button>
+              </div>
+              
+              <div className="space-y-2 max-h-60 overflow-y-auto custom-scrollbar">
+                {keys.map(key => (
+                  <div 
+                    key={key.id} 
+                    className={`flex items-center justify-between p-3 rounded-lg border ${key.isActive ? 'border-indigo-500 bg-indigo-50' : 'border-slate-200 hover:border-slate-300'}`}
+                  >
+                    <div 
+                      className="flex-1 cursor-pointer" 
+                      onClick={() => handleActivate(key.id)}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-slate-800">{key.name}</span>
+                        {key.isActive && <CheckCircleIcon className="w-4 h-4 text-indigo-600" />}
+                      </div>
+                      <div className="text-xs text-slate-400 font-mono mt-0.5">
+                        {key.value.substring(0, 8)}...
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => handleDelete(key.id)}
+                      className="p-2 text-slate-400 hover:text-red-600 transition-colors"
+                      title="Delete Key"
+                    >
+                      <TrashIcon className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
-
-            <div className="bg-slate-50 rounded-lg p-3 text-xs text-slate-500 border border-slate-200">
-              Don't have a key? <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="text-indigo-600 hover:underline font-medium">Get one for free from Google AI Studio &rarr;</a>
-            </div>
-
-            <div className="flex gap-3 pt-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 font-medium rounded-lg hover:bg-slate-50 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={!inputKey.trim()}
-                className="flex-1 px-4 py-2.5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 shadow-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-              >
-                Save API Key
-              </button>
-            </div>
-          </form>
+          ) : (
+            <form onSubmit={handleAddKey} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">Key Label</label>
+                <input
+                  type="text"
+                  value={newKeyName}
+                  onChange={(e) => setNewKeyName(e.target.value)}
+                  placeholder="e.g. Personal Key, Company Key"
+                  className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none text-sm"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wide mb-2">Gemini API Key</label>
+                <input
+                  type="password"
+                  value={newKeyValue}
+                  onChange={(e) => setNewKeyValue(e.target.value)}
+                  placeholder="AIzaSy..."
+                  className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none font-mono text-sm"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                {keys.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setView('list')}
+                    className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 font-medium rounded-lg hover:bg-slate-50 transition-colors"
+                  >
+                    Back
+                  </button>
+                )}
+                <button
+                  type="submit"
+                  disabled={!newKeyName.trim() || !newKeyValue.trim()}
+                  className="flex-1 px-4 py-2.5 bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 shadow-sm disabled:opacity-50"
+                >
+                  Add Key
+                </button>
+              </div>
+            </form>
+          )}
+          
+          <div className="mt-6 pt-4 border-t border-slate-100">
+            <p className="text-xs text-slate-400 text-center">
+              Keys are stored locally in your browser.
+            </p>
+          </div>
         </div>
       </div>
     </div>

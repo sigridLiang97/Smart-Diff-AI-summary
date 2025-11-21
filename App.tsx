@@ -1,50 +1,83 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { DiffDisplay } from './components/DiffDisplay';
 import { SummaryPanel } from './components/SummaryPanel';
-import { generateDiffSummary } from './services/geminiService';
-import { TrashIcon, SparklesIcon } from '@heroicons/react/24/outline';
+import { startAnalysisChat, sendFollowUpMessage } from './services/geminiService';
+import { TrashIcon, SparklesIcon, UserCircleIcon, QuestionMarkCircleIcon } from '@heroicons/react/24/outline';
 import { computeDiff } from './utils/diffEngine';
 import { InputHighlighter } from './components/InputHighlighter';
 import { ApiKeyModal } from './components/ApiKeyModal';
+import { StoredKey, Persona, ChatMessage } from './types';
+import { ChatSession } from '@google/genai';
 
 const DEFAULT_ORIGINAL = `Google Gemini is a family of multimodal AI models developed by Google DeepMind. It is designed to understand and generate text, code, and images seamlessly.`;
 const DEFAULT_MODIFIED = `Google Gemini is a powerful family of multimodal AI models created by Google DeepMind. It is engineered to interpret and generate text, code, audio, and images with high accuracy.`;
 
 const App: React.FC = () => {
+  // --- TEXT STATE ---
   const [originalText, setOriginalText] = useState(DEFAULT_ORIGINAL);
   const [modifiedText, setModifiedText] = useState(DEFAULT_MODIFIED);
+  
+  // --- CONFIG STATE ---
   const [selectedModel, setSelectedModel] = useState<string>('gemini-2.5-flash');
+  const [persona, setPersona] = useState<Persona>('general');
+  const [question, setQuestion] = useState<string>('');
   
-  // API Key State
-  const [apiKey, setApiKey] = useState<string>('');
+  // --- API KEY STATE ---
+  const [apiKeys, setApiKeys] = useState<StoredKey[]>([]);
   const [isKeyModalOpen, setIsKeyModalOpen] = useState(false);
-  
-  // AI State
-  const [summary, setSummary] = useState<string>("");
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  // Load API Key from localStorage on mount
+  // --- AI/CHAT STATE ---
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const chatSessionRef = useRef<ChatSession | null>(null);
+
+  // Load API Keys from localStorage on mount
   useEffect(() => {
-    const storedKey = localStorage.getItem('gemini_api_key');
-    if (storedKey) {
-      setApiKey(storedKey);
+    const storedKeysJson = localStorage.getItem('gemini_api_keys');
+    if (storedKeysJson) {
+      try {
+        const parsed = JSON.parse(storedKeysJson);
+        if (Array.isArray(parsed)) {
+          setApiKeys(parsed);
+          return;
+        }
+      } catch (e) { console.error('Failed to parse keys', e); }
     }
-    // REMOVED: Automatic modal opening logic
+
+    // Backwards compatibility: Check for old single key
+    const oldSingleKey = localStorage.getItem('gemini_api_key');
+    if (oldSingleKey) {
+      const migratedKey: StoredKey = {
+        id: crypto.randomUUID(),
+        name: 'Default Key',
+        value: oldSingleKey,
+        isActive: true
+      };
+      setApiKeys([migratedKey]);
+      localStorage.removeItem('gemini_api_key'); // Clean up
+      localStorage.setItem('gemini_api_keys', JSON.stringify([migratedKey]));
+    }
   }, []);
 
-  const handleSaveKey = (key: string) => {
-    localStorage.setItem('gemini_api_key', key);
-    setApiKey(key);
-    setIsKeyModalOpen(false);
+  // Persist keys when they change
+  const handleUpdateKeys = (newKeys: StoredKey[]) => {
+    setApiKeys(newKeys);
+    localStorage.setItem('gemini_api_keys', JSON.stringify(newKeys));
   };
 
-  // Pre-calculate diffs at top level to share with input highlighters
-  const diffParts = React.useMemo(() => computeDiff(originalText, modifiedText), [originalText, modifiedText]);
+  // Get Active Key
+  const activeKey = apiKeys.find(k => k.isActive)?.value;
 
-  const handleAnalysis = useCallback(async () => {
-    // If no key, open settings instead of analyzing
-    if (!apiKey) {
+  // Pre-calculate diffs
+  const diffParts = React.useMemo(() => computeDiff(originalText, modifiedText), [originalText, modifiedText]);
+  const hasContent = originalText.length > 0 && modifiedText.length > 0;
+
+  // --- ACTIONS ---
+
+  const handleStartAnalysis = useCallback(async () => {
+    // If no key, open settings
+    if (!activeKey) {
       setIsKeyModalOpen(true);
       return;
     }
@@ -52,21 +85,66 @@ const App: React.FC = () => {
     if (!originalText.trim() || !modifiedText.trim()) return;
     
     setIsAnalyzing(true);
-    setSummary(""); // Clear previous summary
+    setMessages([]); // Clear previous chat
+    chatSessionRef.current = null;
     
-    const result = await generateDiffSummary(originalText, modifiedText, selectedModel, apiKey);
-    setSummary(result);
-    setIsAnalyzing(false);
-  }, [originalText, modifiedText, selectedModel, apiKey]);
+    try {
+      const { session, initialResponse } = await startAnalysisChat(
+        activeKey, 
+        selectedModel, 
+        originalText, 
+        modifiedText, 
+        persona, 
+        question
+      );
+      
+      chatSessionRef.current = session;
+      setMessages([{
+        id: crypto.randomUUID(),
+        role: 'model',
+        text: initialResponse,
+        timestamp: Date.now()
+      }]);
+    } catch (error: any) {
+      setMessages([{
+        id: crypto.randomUUID(),
+        role: 'model',
+        text: `Error: ${error.message || "Failed to start analysis."}`,
+        timestamp: Date.now(),
+        isError: true
+      }]);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [originalText, modifiedText, selectedModel, activeKey, persona, question]);
+
+  const handleSendMessage = useCallback(async (text: string) => {
+    if (!chatSessionRef.current) return;
+
+    // Add user message immediately
+    const userMsg: ChatMessage = { id: crypto.randomUUID(), role: 'user', text, timestamp: Date.now() };
+    setMessages(prev => [...prev, userMsg]);
+    setIsAnalyzing(true);
+
+    try {
+      const responseText = await sendFollowUpMessage(chatSessionRef.current, text);
+      const modelMsg: ChatMessage = { id: crypto.randomUUID(), role: 'model', text: responseText, timestamp: Date.now() };
+      setMessages(prev => [...prev, modelMsg]);
+    } catch (error: any) {
+      const errorMsg: ChatMessage = { id: crypto.randomUUID(), role: 'model', text: "Error generating response. Please try again.", timestamp: Date.now(), isError: true };
+      setMessages(prev => [...prev, errorMsg]);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, []);
 
   const handleClear = () => {
-    // REMOVED: window.confirm blocking call
     setOriginalText("");
     setModifiedText("");
-    setSummary("");
+    setMessages([]);
+    setQuestion("");
+    chatSessionRef.current = null;
   };
-
-  const hasContent = originalText.length > 0 && modifiedText.length > 0;
 
   return (
     <div className="h-screen bg-slate-50 flex flex-col font-sans overflow-hidden">
@@ -78,36 +156,37 @@ const App: React.FC = () => {
 
       <ApiKeyModal 
         isOpen={isKeyModalOpen}
-        onSave={handleSaveKey}
         onClose={() => setIsKeyModalOpen(false)}
-        hasKey={!!apiKey}
+        keys={apiKeys}
+        setKeys={handleUpdateKeys}
       />
 
       <div className="flex-grow flex flex-col lg:flex-row overflow-hidden">
         
-        {/* LEFT PANEL: Review Mode & AI Summary (Scrollable) */}
-        <div className="flex-1 overflow-y-auto p-4 lg:p-8 custom-scrollbar bg-slate-50/50">
-          <div className="max-w-5xl mx-auto space-y-8 pb-10">
+        {/* LEFT PANEL: Review Mode & Chat (Scrollable) */}
+        <div className="flex-1 overflow-y-auto p-4 lg:p-6 custom-scrollbar bg-slate-50/50">
+          <div className="max-w-5xl mx-auto space-y-6 pb-10 h-full flex flex-col">
             {/* Diff Visualization */}
-            <section>
+            <div className="flex-none">
               <DiffDisplay 
                 originalText={originalText} 
                 modifiedText={modifiedText} 
                 diffParts={diffParts}
               />
-            </section>
+            </div>
 
-            {/* AI Analysis Panel */}
+            {/* AI Chat Panel */}
             {hasContent && (
-              <section>
+              <div className="flex-grow min-h-[500px]">
                  <SummaryPanel 
-                  summary={summary} 
+                  messages={messages}
                   isLoading={isAnalyzing} 
-                  onGenerate={handleAnalysis}
+                  onGenerate={handleStartAnalysis}
+                  onSendMessage={handleSendMessage}
                   hasContent={hasContent}
-                  hasKey={!!apiKey}
+                  hasKey={!!activeKey}
                 />
-              </section>
+              </div>
             )}
           </div>
         </div>
@@ -115,16 +194,52 @@ const App: React.FC = () => {
         {/* RIGHT PANEL: Inputs (Fixed Sidebar) */}
         <div className="w-full lg:w-[450px] xl:w-[500px] bg-white border-l border-slate-200 shadow-xl flex flex-col z-20">
           
-          {/* Toolbar */}
+          {/* Analysis Settings (New) */}
+          <div className="p-4 border-b border-slate-100 bg-slate-50/50 space-y-3">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+              <UserCircleIcon className="w-4 h-4" /> Analysis Persona
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+               {(['general', 'interviewer', 'academic', 'reviewer'] as Persona[]).map((p) => (
+                 <button
+                    key={p}
+                    onClick={() => setPersona(p)}
+                    className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all capitalize
+                      ${persona === p 
+                        ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm' 
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }
+                    `}
+                 >
+                   {p}
+                 </button>
+               ))}
+            </div>
+
+            <div className="pt-1">
+               <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
+                 <QuestionMarkCircleIcon className="w-4 h-4" /> Context Question (Optional)
+               </div>
+               <input 
+                 type="text" 
+                 value={question}
+                 onChange={(e) => setQuestion(e.target.value)}
+                 placeholder="e.g. Which version sounds more confident?"
+                 className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+               />
+            </div>
+          </div>
+
+          {/* Main Actions */}
           <div className="p-4 border-b border-slate-100 flex items-center gap-3 bg-white">
              <button
                 type="button"
-                onClick={handleAnalysis}
+                onClick={handleStartAnalysis}
                 disabled={!hasContent || isAnalyzing}
                 className="flex-1 flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white px-4 py-2.5 rounded-lg font-medium shadow-sm transition-all text-sm"
              >
                <SparklesIcon className="w-4 h-4" />
-               {isAnalyzing ? 'Analyzing...' : 'Analyze Differences'}
+               {isAnalyzing ? 'Analyzing...' : (messages.length > 0 ? 'Restart Analysis' : 'Start Analysis')}
              </button>
              
              <button
@@ -138,7 +253,7 @@ const App: React.FC = () => {
           </div>
 
           {/* Input Areas Container */}
-          <div className="flex-1 flex flex-col h-full overflow-hidden">
+          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
             
             {/* Top: Original Text (Red Theme) */}
             <div className="flex-1 flex flex-col min-h-0 border-b border-slate-100 bg-red-50/10 relative">
