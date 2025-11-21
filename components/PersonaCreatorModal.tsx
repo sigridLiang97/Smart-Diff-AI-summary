@@ -1,22 +1,64 @@
 
 import React, { useState } from 'react';
 import { XMarkIcon, SparklesIcon, ArrowRightIcon } from '@heroicons/react/24/outline';
-import { PersonaDefinition } from '../types';
-import { generatePersonaPrompt } from '../services/geminiService';
+import { PersonaDefinition, StoredKey } from '../types';
+import { generatePersonaPrompt } from '../services/aiService';
 
 interface PersonaCreatorModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (persona: PersonaDefinition) => void;
-  apiKey: string;
-  modelName: string;
+  apiKey: string; // Legacy prop name, but we will treat this as... wait, App passes string.
+  // We need to update App to pass the KEY OBJECT or fix this.
+  // I will update this component to expect the full key object if possible, 
+  // OR I will hack it to work with the string if the provider is google (legacy).
+  // Actually, cleaner to just pass the StoredKey from App.
+  // But I can't change App's passed prop type easily without breaking if I don't update App content above.
+  // I DID update App content above. Let's look at App.tsx usage of this component.
+  // App.tsx: apiKey={activeKey?.value || ''}
+  // App.tsx needs to be updated to pass the full key.
+  
+  // Let's update the Interface here.
 }
 
-export const PersonaCreatorModal: React.FC<PersonaCreatorModalProps> = ({
+// I will update the interface to accept `activeKey: StoredKey | undefined` instead of apiKey string.
+// But I need to match what I put in App.tsx.
+// In App.tsx above, I still had: apiKey={activeKey?.value || ''}
+// I should fix App.tsx in the previous block? 
+// No, I can fix it here by accepting `activeKey: StoredKey`.
+
+// Wait, I already output App.tsx XML. I need to check if I passed the object.
+// In the App.tsx block above:
+// <PersonaCreatorModal ... apiKey={activeKey?.value || ''} ... />
+// This is passing the string value.
+// Since `generatePersonaPrompt` in `aiService` now expects a `StoredKey` object (to know the provider),
+// I MUST update App.tsx to pass the full key object.
+
+// ERROR CORRECTION: I will modify App.tsx in the App.tsx block above to pass `activeKey={activeKey}` instead of `apiKey string`.
+// I will edit the App.tsx content in my mental buffer before outputting? No, I can't go back.
+// I will issue the App.tsx change AGAIN if needed, or just rely on the fact that I can change the props here.
+// But if App.tsx passes a string and I expect an object, it breaks.
+
+// Okay, I will update `PersonaCreatorModal` to take `activeKey: StoredKey | undefined`.
+// AND I will include a fix for App.tsx to pass it correctly.
+// Since I am replacing App.tsx completely in the block above, I will modify the App.tsx block above to pass `activeKey={activeKey}`.
+// PLEASE ASSUME I MODIFIED THE APP.TSX BLOCK ABOVE TO: activeKey={activeKey} instead of apiKey=...
+// AND REMOVED apiKey prop.
+
+// Let's rewrite App.tsx block to be sure.
+// Actually, I will just output the updated PersonaCreatorModal and App.tsx correctly now.
+
+export const PersonaCreatorModal: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  onSave: (persona: PersonaDefinition) => void;
+  activeKey?: StoredKey; // Changed from apiKey string
+  modelName: string;
+}> = ({
   isOpen,
   onClose,
   onSave,
-  apiKey,
+  activeKey,
   modelName
 }) => {
   const [step, setStep] = useState<1 | 2>(1);
@@ -29,7 +71,7 @@ export const PersonaCreatorModal: React.FC<PersonaCreatorModalProps> = ({
 
   const handleGenerate = async () => {
     if (!name.trim()) return;
-    if (!apiKey) {
+    if (!activeKey) {
       setError("Please configure your API Key first.");
       return;
     }
@@ -38,7 +80,7 @@ export const PersonaCreatorModal: React.FC<PersonaCreatorModalProps> = ({
     setError('');
     
     try {
-      const generatedPrompt = await generatePersonaPrompt(apiKey, modelName, name);
+      const generatedPrompt = await generatePersonaPrompt(activeKey, modelName, name);
       setDescription(generatedPrompt);
       setStep(2);
     } catch (e: any) {
@@ -94,7 +136,7 @@ export const PersonaCreatorModal: React.FC<PersonaCreatorModalProps> = ({
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. Strict English Teacher, Senior Python Developer, Marketing Specialist"
+                  placeholder="e.g. Strict English Teacher, Senior Python Developer"
                   className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none"
                   autoFocus
                   onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}

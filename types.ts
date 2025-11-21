@@ -24,10 +24,14 @@ export interface PersonaDefinition {
   isCustom?: boolean;
 }
 
+export type AIProvider = 'google' | 'openai' | 'deepseek' | 'custom';
+
 export interface StoredKey {
   id: string;
   name: string;
   value: string;
+  provider: AIProvider;
+  baseUrl?: string;
   isActive: boolean;
 }
 

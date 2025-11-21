@@ -1,9 +1,9 @@
 
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Header } from './components/Header';
 import { DiffDisplay } from './components/DiffDisplay';
 import { SummaryPanel } from './components/SummaryPanel';
-import { startAnalysisChat, sendFollowUpMessage, resumeAnalysisChat } from './services/geminiService';
+import { sendMessageToAI } from './services/aiService';
 import { TrashIcon, SparklesIcon, UserCircleIcon, QuestionMarkCircleIcon, PlusIcon } from '@heroicons/react/24/outline';
 import { computeDiff } from './utils/diffEngine';
 import { InputHighlighter } from './components/InputHighlighter';
@@ -11,7 +11,6 @@ import { ApiKeyModal } from './components/ApiKeyModal';
 import { HistoryModal } from './components/HistoryModal';
 import { PersonaCreatorModal } from './components/PersonaCreatorModal';
 import { StoredKey, PersonaDefinition, ChatMessage, HistoryItem } from './types';
-import { Chat } from '@google/genai';
 
 const DEFAULT_ORIGINAL = `Google Gemini is a family of multimodal AI models developed by Google DeepMind. It is designed to understand and generate text, code, and images seamlessly.`;
 const DEFAULT_MODIFIED = `Google Gemini is a powerful family of multimodal AI models created by Google DeepMind. It is engineered to interpret and generate text, code, audio, and images with high accuracy.`;
@@ -49,8 +48,7 @@ const App: React.FC = () => {
   // --- AI/CHAT STATE ---
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const chatSessionRef = useRef<Chat | null>(null);
-
+  
   // Load Data on Mount
   useEffect(() => {
     // Keys
@@ -58,7 +56,14 @@ const App: React.FC = () => {
     if (storedKeysJson) {
       try {
         const parsed = JSON.parse(storedKeysJson);
-        if (Array.isArray(parsed)) setApiKeys(parsed);
+        if (Array.isArray(parsed)) {
+          // Migration: Ensure legacy keys have a provider
+          const migratedKeys = parsed.map(k => ({
+            ...k,
+            provider: k.provider || 'google' // Default legacy keys to google
+          }));
+          setApiKeys(migratedKeys);
+        }
       } catch (e) { console.error('Failed to parse keys', e); }
     }
 
@@ -119,12 +124,21 @@ const App: React.FC = () => {
   };
 
   // Get Active Data
-  const activeKey = apiKeys.find(k => k.isActive)?.value;
+  const activeKey = apiKeys.find(k => k.isActive);
   const activePersona = availablePersonas.find(p => p.id === selectedPersonaId) || DEFAULT_PERSONAS[0];
 
   // Pre-calculate diffs
   const diffParts = React.useMemo(() => computeDiff(originalText, modifiedText), [originalText, modifiedText]);
   const hasContent = originalText.length > 0 && modifiedText.length > 0;
+
+  // When switching keys, reset model selection if invalid for new provider?
+  useEffect(() => {
+    if (!activeKey) return;
+    // Auto-switch default model based on provider
+    if (activeKey.provider === 'openai' && !selectedModel.startsWith('gpt')) setSelectedModel('gpt-4o');
+    if (activeKey.provider === 'deepseek' && !selectedModel.startsWith('deepseek')) setSelectedModel('deepseek-chat');
+    if (activeKey.provider === 'google' && !selectedModel.startsWith('gemini')) setSelectedModel('gemini-2.5-flash');
+  }, [activeKey?.provider]); 
 
   // --- ACTIONS ---
 
@@ -138,23 +152,22 @@ const App: React.FC = () => {
     
     setIsAnalyzing(true);
     setMessages([]); // Clear previous chat
-    chatSessionRef.current = null;
     
     try {
-      const { session, initialResponse } = await startAnalysisChat(
-        activeKey, 
-        selectedModel, 
-        originalText, 
-        modifiedText, 
-        activePersona.description, // Pass the prompt text 
+      const responseText = await sendMessageToAI(
+        activeKey,
+        selectedModel,
+        [], // No history yet
+        originalText,
+        modifiedText,
+        activePersona.description,
         question
       );
       
-      chatSessionRef.current = session;
       const initialMessage: ChatMessage = {
         id: crypto.randomUUID(),
         role: 'model',
-        text: initialResponse,
+        text: responseText,
         timestamp: Date.now()
       };
       setMessages([initialMessage]);
@@ -165,7 +178,7 @@ const App: React.FC = () => {
         timestamp: Date.now(),
         originalText,
         modifiedText,
-        persona: activePersona, // Save the full object
+        persona: activePersona,
         question,
         messages: [initialMessage]
       };
@@ -188,7 +201,7 @@ const App: React.FC = () => {
     setOriginalText(item.originalText);
     setModifiedText(item.modifiedText);
     
-    // Restore Persona (Add to list if custom and missing, or just set ID)
+    // Restore Persona
     if (item.persona.isCustom) {
       const exists = availablePersonas.find(p => p.id === item.persona.id);
       if (!exists) {
@@ -199,43 +212,12 @@ const App: React.FC = () => {
 
     setQuestion(item.question);
     setMessages(item.messages);
-    
-    if (activeKey) {
-      try {
-        setIsAnalyzing(true);
-        // Re-initialize session with previous context
-        const session = await resumeAnalysisChat(
-          activeKey, 
-          selectedModel, 
-          item.messages,
-          item.originalText,
-          item.modifiedText,
-          item.persona.description,
-          item.question
-        );
-        chatSessionRef.current = session;
-      } catch (e) {
-        console.error("Could not resume chat session", e);
-      } finally {
-        setIsAnalyzing(false);
-      }
-    } else {
-      chatSessionRef.current = null;
-    }
   };
 
   const handleSendMessage = useCallback(async (text: string) => {
-    if (!chatSessionRef.current) {
-       if (activeKey && messages.length > 0) {
-          // Try to lazy resume if session was lost but context exists
-          try {
-            chatSessionRef.current = await resumeAnalysisChat(
-              activeKey, selectedModel, messages, originalText, modifiedText, activePersona.description, question
-            );
-          } catch(e) { return; }
-       } else {
-         return;
-       }
+    if (!activeKey) {
+      setIsKeyModalOpen(true);
+      return;
     }
 
     const userMsg: ChatMessage = { id: crypto.randomUUID(), role: 'user', text, timestamp: Date.now() };
@@ -244,11 +226,20 @@ const App: React.FC = () => {
     setIsAnalyzing(true);
 
     try {
-      const responseText = await sendFollowUpMessage(chatSessionRef.current!, text);
+      const responseText = await sendMessageToAI(
+        activeKey, 
+        selectedModel, 
+        updatedMessages, 
+        originalText, 
+        modifiedText, 
+        activePersona.description, 
+        question
+      );
+
       const modelMsg: ChatMessage = { id: crypto.randomUUID(), role: 'model', text: responseText, timestamp: Date.now() };
       setMessages([...updatedMessages, modelMsg]);
     } catch (error: any) {
-      const errorMsg: ChatMessage = { id: crypto.randomUUID(), role: 'model', text: "Error generating response.", timestamp: Date.now(), isError: true };
+      const errorMsg: ChatMessage = { id: crypto.randomUUID(), role: 'model', text: `Error: ${error.message}`, timestamp: Date.now(), isError: true };
       setMessages(prev => [...prev, errorMsg]);
     } finally {
       setIsAnalyzing(false);
@@ -260,7 +251,6 @@ const App: React.FC = () => {
     setModifiedText("");
     setMessages([]);
     setQuestion("");
-    chatSessionRef.current = null;
   };
 
   return (
@@ -270,6 +260,7 @@ const App: React.FC = () => {
         onModelChange={setSelectedModel}
         onOpenSettings={() => setIsKeyModalOpen(true)} 
         onOpenHistory={() => setIsHistoryOpen(true)}
+        activeProvider={activeKey?.provider}
       />
 
       <ApiKeyModal 
@@ -292,10 +283,11 @@ const App: React.FC = () => {
         isOpen={isPersonaCreatorOpen}
         onClose={() => setIsPersonaCreatorOpen(false)}
         onSave={handleCreatePersona}
-        apiKey={activeKey || ''}
+        activeKey={activeKey}
         modelName={selectedModel}
       />
 
+      {/* ... (Rest of Layout is identical) ... */}
       <div className="flex-grow flex flex-col lg:flex-row overflow-hidden">
         
         {/* LEFT PANEL: Review Mode & Chat */}
@@ -404,9 +396,9 @@ const App: React.FC = () => {
                 onClick={handleClear}
                 className="flex items-center justify-center p-2.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                 title="Clear all text"
-             >
-               <TrashIcon className="w-5 h-5" />
-             </button>
+              >
+                <TrashIcon className="w-5 h-5" />
+              </button>
           </div>
 
           {/* Inputs */}
